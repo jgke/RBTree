@@ -1,6 +1,7 @@
 module Lib where
 
 import Data.Maybe (fromJust)
+import Debug.Trace
 
 data Color = Black | Red
              deriving (Eq, Show)
@@ -9,7 +10,7 @@ data RBTree a = Nil
               deriving (Eq, Show)
 
 instance Foldable RBTree where
-   foldMap f Nil = mempty
+   foldMap _ Nil = mempty
    foldMap f (Node _ k l r) = foldMap f l `mappend` f k `mappend` foldMap f r
 
 instance Ord a => Semigroup (RBTree a) where
@@ -40,34 +41,84 @@ unZip ([], t) = t
 unZip z = unZip (fromJust $ back z)
 
 takeLeft :: Zipper a -> Maybe (Zipper a)
-takeLeft (t, Node c v l r) = Just (RBLeft c v r : t, l)
+takeLeft (t, Node c v l r) = Just (RBLeft c v r:t, l)
 takeLeft _ = Nothing
 
 takeRight :: Zipper a -> Maybe (Zipper a)
-takeRight (t, Node c v l r) = Just (RBRight c v l : t, r)
+takeRight (t, Node c v l r) = Just (RBRight c v l:t, r)
 takeRight _ = Nothing
 
 back :: Zipper a -> Maybe (Zipper a)
 back ([], _) = Nothing
-back (RBLeft c x r : t, l) = Just (t, Node c x l r)
-back (RBRight c x l : t, r) = Just (t, Node c x l r)
+back (RBLeft c x r:t, l) = Just (t, Node c x l r)
+back (RBRight c x l:t, r) = Just (t, Node c x l r)
 
 add :: (Ord a) => a -> RBTree a -> RBTree a
+add a Nil = makeTree a
 add a tree = unZip $ addZ a $ zipper tree
 
 getValue :: RBTree a -> Maybe a
 getValue Nil = Nothing
 getValue (Node _ val _ _) = Just val
 
+sibling :: Zipper a -> RBTree a
+sibling ([], _) = error "No sibling without parents"
+sibling (RBLeft _ _ r:_, _) = r
+sibling (RBRight _ _ l:_, _) = l
+
+toBlack :: RBTree a -> RBTree a
+toBlack (Node _ x l r) = Node Black x l r
+toBlack Nil = Nil
+
+
+toRed :: RBTree a -> RBTree a
+toRed (Node _ x l r) = Node Red x l r
+toRed Nil = Nil
+
+currentToRedAndChildrenToBlack :: Zipper a -> Zipper a
+currentToRedAndChildrenToBlack (_, Nil) = error "No children for NIL"
+currentToRedAndChildrenToBlack (t, Node _ v l r) = (t, Node Red v (toBlack l) (toBlack r))
+
+handleRedUncle :: (Ord a) => Zipper a -> Zipper a
+handleRedUncle child = postAddRotation $ currentToRedAndChildrenToBlack grandparent
+  where grandparent = fromJust $ (Just child >>= back >>= back)
+
+rotateLeft :: Zipper a -> Maybe (Zipper a)
+rotateLeft (t, Node c v l (Node rc rv rl rr)) = Just (t, Node rc rv (Node c v l rl) rr)
+rotateLeft _ = error ""
+
+rotateRight :: Zipper a -> Maybe (Zipper a)
+rotateRight (t, Node c v (Node lc lv ll lr) r) = Just (t, Node lc lv ll (Node c v lr r))
+rotateRight _ = error ""
+
+handleBlackUncle :: (Ord a) => Zipper a -> Zipper a
+handleBlackUncle (((RBLeft pc pa pn):(RBLeft gpc gpa gcn):t), child) =
+  fromJust $ Just ((RBLeft gpc pa pn):(RBLeft pc gpa gcn):t, child) >>= back >>= back >>= rotateRight
+handleBlackUncle z@(((RBRight _ _ _):(RBLeft _ _ _):_), _) =
+  handleBlackUncle $ fromJust $ Just z >>= back >>= rotateLeft >>= takeLeft
+handleBlackUncle (((RBRight pc pa pn):(RBRight gpc gpa gcn):t), child) =
+  fromJust $ Just ((RBRight gpc pa pn):(RBRight pc gpa gcn):t, child) >>= back >>= back >>= rotateLeft
+handleBlackUncle z@(((RBLeft _ _ _):(RBRight _ _ _):_), _) =
+  handleBlackUncle $ fromJust $ Just z >>= back >>= rotateRight >>= takeRight
+handleBlackUncle _ = error "No black uncle or inconsistent state"
+
+postAddRotation :: (Ord a) => Zipper a -> Zipper a
+postAddRotation z@(t, n) = case (back z) of
+  Nothing -> (t, toBlack n)
+  Just parent -> if (isBlack $ snd parent)
+    then z
+    else if (isBlack $ sibling parent)
+         then handleBlackUncle z
+         else handleRedUncle z
+
 addZ :: (Ord a) => a -> Zipper a -> Zipper a
 addZ a z@(thread, tree) =
   let val = getValue tree
   in case val of
-    Nothing -> (thread, makeRed a)
+    Nothing -> postAddRotation (thread, makeRed a)
     (Just value) -> if (a < value)
       then addZ a (fromJust $ takeLeft z)
       else addZ a (fromJust $ takeRight z)
-
 
 getLeft :: RBTree a -> Maybe (RBTree a)
 getLeft Nil = Nothing
@@ -82,7 +133,9 @@ addAll tree coll = foldr add tree coll
 
 isBlack :: RBTree a -> Bool
 isBlack (Node Black _ _ _) = True
+isBlack Nil = True
 isBlack _ = False
+
 isRed :: RBTree a -> Bool
 isRed (Node Red _ _ _) = True
 isRed _ = False
