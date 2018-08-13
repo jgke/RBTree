@@ -143,32 +143,50 @@ add a tree = unzipper $ addToZipper a $ zipper tree
 addAll :: (Ord a, Foldable t) => RBTree a -> t a -> RBTree a
 addAll tree coll = foldr add tree coll
 
-handleRedUncle :: (Ord a) => Zipper a -> Maybe (Zipper a)
-handleRedUncle child = Just child >>= back >>= back >>= currentToRedAndChildrenToBlack >>= postAddRotation
+addToZipper :: (Ord a) => a -> Zipper a -> Zipper a
+addToZipper value z@(thread, tree) =
+  case getNodeValue tree <&> (compare value) of
+    Nothing -> fromJust $ postAddRotation (thread, makeRed value)
+    (Just LT) -> addToZipper value (fromJust $ takeLeft z)
+    (Just EQ) -> addToZipper value (fromJust $ takeRight z) -- for a tree without duplicates, change this case to 'z'
+    (Just GT) -> addToZipper value (fromJust $ takeRight z)
 
-handleBlackUncle :: (Ord a) => Zipper a -> Maybe (Zipper a)
-handleBlackUncle z@(RBLeft{}:RBLeft{}:_, _) = Just z >>= back >>= swapColorWithParent >>= back >>= rotateRight
-handleBlackUncle z@(RBRight{}:RBRight{}:_, _) = Just z >>= back >>= swapColorWithParent >>= back >>= rotateLeft
-handleBlackUncle z@(RBLeft{}:RBRight{}:_, _) = Just z >>= back >>= rotateRight >>= takeRight >>= handleBlackUncle
-handleBlackUncle z@(RBRight{}:RBLeft{}:_, _) = Just z >>= back >>= rotateLeft >>= takeLeft >>= handleBlackUncle
+handleRedUncle :: (Ord a) => Zipper a -> Maybe (Zipper a)
+handleRedUncle child = back child >>= back >>= currentToRedAndChildrenToBlack >>= postAddRotation
+
+handleBlackUncle :: Zipper a -> Maybe (Zipper a)
+handleBlackUncle z@(RBLeft{}:RBLeft{}:_, _)   = back z >>= swapColorWithParent >>= back >>= rotateRight
+handleBlackUncle z@(RBRight{}:RBRight{}:_, _) = back z >>= swapColorWithParent >>= back >>= rotateLeft
+handleBlackUncle z@(RBLeft{}:RBRight{}:_, _)  = back z >>= rotateRight >>= takeRight >>= handleBlackUncle
+handleBlackUncle z@(RBRight{}:RBLeft{}:_, _)  = back z >>= rotateLeft >>= takeLeft >>= handleBlackUncle
 handleBlackUncle _ = Nothing
 
 postAddRotation :: (Ord a) => Zipper a -> Maybe (Zipper a)
-postAddRotation z@(t, n) = case (back z <&> current, back z >>= sibling) of
-  (Nothing, _) -> Just (t, toBlack n)
-  (Just (Node Black _ _ _), _) -> Just z
-  (Just _, Just (Node Black _ _ _)) -> handleBlackUncle z
-  (Just _, Just Nil) -> handleBlackUncle z
-  (Just _, Just (Node Red _ _ _)) -> handleRedUncle z
-  _ -> error ""
+postAddRotation z@(t, n) =
+    case (isParentBlack, isUncleBlack) of
+        (Nothing, _) -> Just (t, toBlack n)
+        (Just True, _) -> Just z
+        (Just _, Just True) -> handleBlackUncle z
+        (Just _, Just False) -> handleRedUncle z
+        (Just False, Nothing) -> error "Parent cannot be red if it has no siblings (violates 3 or 4)"
+    where isParentBlack = back z <&> current <&> isBlack
+          isUncleBlack = back z >>= sibling <&> isBlack
 
-addToZipper :: (Ord a) => a -> Zipper a -> Zipper a
-addToZipper value z@(thread, tree) =
-  case getNodeValue tree >>= Just . compare value of
-    Nothing -> fromJust $ postAddRotation (thread, makeRed value)
-    (Just GT) -> addToZipper value (fromJust $ takeRight z)
-    (Just EQ) -> addToZipper value (fromJust $ takeLeft z)
-    (Just LT) -> addToZipper value (fromJust $ takeLeft z)
+-- deletion
+
+delete :: (Ord a) => a -> RBTree a -> RBTree a
+delete a Nil = Nil
+delete a tree = unzipper $ removeFromZipper a $ zipper tree
+
+postRemoveRotation = Just . id
+
+removeFromZipper :: (Ord a) => a -> Zipper a -> Zipper a
+removeFromZipper value z@(thread, tree) =
+  case getNodeValue tree <&> (compare value) of
+    Nothing -> fromJust $ postRemoveRotation (thread, Nil)
+    (Just LT) -> removeFromZipper value (fromJust $ takeLeft z)
+    (Just EQ) -> removeFromZipper value (fromJust $ takeRight z) -- for a tree without duplicates, change this case to 'z'
+    (Just GT) -> removeFromZipper value (fromJust $ takeRight z)
 
 -- instances
 
