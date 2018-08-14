@@ -35,6 +35,7 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - rbtree
+    - criterion >= 1.4.1.0
 
 tests:
   rbtree-test:

@@ -1,5 +1,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 import Test.Tasty
 import Test.Tasty.SmallCheck as SC
@@ -12,6 +13,19 @@ import Data.List
 import Data.Foldable
 import Control.Monad
 import Data.Maybe (isJust)
+import Debug.Trace
+import Data.Functor
+
+data Operation a = Insert a | Delete a deriving (Show)
+instance Arbitrary (Operation Int) where
+  arbitrary = do
+    val <- choose (1, 10)
+    oneof [return $ Insert val, return $ Delete val]
+
+operate :: (Ord a) => RBTree a -> [Operation a] -> RBTree a
+operate tree [] = tree
+operate tree (Insert item:xs) = operate (add item tree) xs
+operate tree (Delete item:xs) = operate (Lib.delete item tree) xs
 
 tests :: TestTree
 tests = testGroup "Tests" [properties, unitTests]
@@ -26,20 +40,38 @@ scProps :: TestTree
 scProps = testGroup "(checked by SmallCheck)" $ makeTests SC.testProperty
 
 qcProps :: TestTree
-qcProps = testGroup "(checked by QuickCheck)" $ makeTests QC.testProperty
+qcProps = testGroup "(checked by QuickCheck)" $ makeTests QC.testProperty ++ [treeIsValidAfterAnyOperation QC.testProperty]
 
 makeTests :: ([Char] -> ([Int] -> Bool) -> a) -> [a]
 makeTests tester = [ prop tester | prop <- propertyTesters ]
 
+uniq :: (Eq a) => [a] -> [a]
+uniq [] = []
+uniq [x] = [x]
+uniq (x:y:xs) = if (x == y) then uniq (x:xs) else [x] ++ uniq (y:xs)
+
+treeIsSorted :: (Eq a, Ord a) => RBTree a -> Bool
+treeIsSorted tree = list == (uniq $ sort list)
+            where list = toList tree
+
+rootIsBlack :: RBTree a -> Bool
+rootIsBlack = isBlack
+
 treesAreSorted :: Tester
-treesAreSorted a =  a "All trees are sorted" $ \val -> toList (addAll Nil val) == sort val
+treesAreSorted a =  a "All trees are sorted" $ \val -> treeIsSorted $ addAll Nil val
+
+countOfBlackChildrenIsEqual :: RBTree a -> Bool
+countOfBlackChildrenIsEqual tree = allTree (\x -> liftM countBlackChildren (getLeft x) == liftM countBlackChildren (getRight x)) tree
+
+containsNoAdjacentRedNodes :: RBTree a -> Bool
+containsNoAdjacentRedNodes tree = not $ anyTree childAndParentIsRed tree
 
 makeTreeAIsBlack :: Tester
 makeTreeAIsBlack a = a "makeTree a is black" $ \val ->
   (length val /= 1) || (makeTree (head val) :: RBTree Int) == Node Black (head val) Nil Nil
 
 rootOfTreeIsAlwaysBlack :: Tester
-rootOfTreeIsAlwaysBlack a = a "Root of tree is always black" $ \val -> isBlack $ makeTree val
+rootOfTreeIsAlwaysBlack a = a "Root of tree is always black" $ \val -> rootIsBlack $ makeTree val
 
 childIsRed :: RBTree a -> Bool
 childIsRed Nil = False
@@ -49,14 +81,17 @@ childAndParentIsRed :: RBTree a -> Bool
 childAndParentIsRed tree = isRed tree && childIsRed tree
 
 noAdjacentRedNodes :: Tester
-noAdjacentRedNodes a = a "There are no adjacent red nodes" $ \val -> allTree (not . childAndParentIsRed) $ addAll Nil val
+noAdjacentRedNodes a = a "There are no adjacent red nodes" $ \val -> containsNoAdjacentRedNodes $ addAll Nil val
 
 countBlackChildren :: RBTree a -> Int
 countBlackChildren Nil = 1
 countBlackChildren (Node _ _ l r) = max (countBlackChildren l) (countBlackChildren r)
 
-countOfBlackChildrenIsEqual :: Tester
-countOfBlackChildrenIsEqual a = a "Count of black children is always equal" $ \val -> allTree (\x -> liftM countBlackChildren (getLeft x) == liftM  countBlackChildren (getRight x)) $ addAll Nil val
+redBlackProperties :: (Ord a) => [RBTree a -> Bool]
+redBlackProperties = [treeIsSorted, containsNoAdjacentRedNodes, countOfBlackChildrenIsEqual]
+
+countOfBlackChildrenIsEqualForAllTrees :: Tester
+countOfBlackChildrenIsEqualForAllTrees a = a "Count of black children is always equal" $ \val -> countOfBlackChildrenIsEqual $ addAll Nil val
 
 zipperLawsLeft :: (Ord a) => RBTree a -> Bool
 zipperLawsLeft tree = ((Just . zipper) tree >>= takeLeft >>= back >>= (Just . snd)) == Just tree
@@ -79,10 +114,25 @@ searchSome _ = error ""
 searchWorks :: Tester
 searchWorks a = a "Searching tree" $ \val -> val == [] || searchSome val
 
+deleteSome :: [Int] -> Bool
+deleteSome a@(x:xs) = all (Lib.exists tree) (filter (/= x) xs) && (not (Lib.exists tree x))
+    where fullTree = addAll Nil a
+          tree = Lib.delete x fullTree
+deleteSome _ = error ""
+
+deleteSimple :: Tester
+deleteSimple a = a "Deleting from tree" $ \val -> val == [] || deleteSome val
+
+validateTree :: (Ord a) => RBTree a -> Bool
+validateTree tree = all id $ map (\prop -> prop tree) redBlackProperties
+
+treeIsValidAfterAnyOperation :: ([Char] -> ([Operation Int] -> Bool) -> t) -> t
+treeIsValidAfterAnyOperation a = a "Tree is valid after any operation" (\operations -> validateTree $ operate Nil operations)
+
 propertyTesters :: [([Char] -> ([Int] -> Bool) -> t) -> t]
 propertyTesters = [treesAreSorted, makeTreeAIsBlack, rootOfTreeIsAlwaysBlack,
-                   noAdjacentRedNodes, countOfBlackChildrenIsEqual,
-                   zipperLeft, zipperRight, searchWorks]
+                   noAdjacentRedNodes, countOfBlackChildrenIsEqualForAllTrees,
+                   zipperLeft, zipperRight, searchWorks, deleteSimple]
 
 makeIntTree :: Int -> RBTree Int
 makeIntTree = makeTree
@@ -100,7 +150,7 @@ unitTests = testGroup "Unit tests"
     , testCase "Navigating back and forth" $
       ((Just $ zipper (makeIntTree 0)) >>= takeLeft >>= back >>= (Just . snd)) @?= Just (makeTree 0)
     , testCase "Insert many more to tree" $
-      addAll (makeIntTree 4) [1, 2, 3, 4, 5] @?= Node Black 4 (Node Red 3 (Node Black 2 (Node Red 1 Nil Nil) Nil) (Node Black 4 Nil Nil)) (Node Black 5 Nil Nil)
+      addAll (makeIntTree 4) [1, 2, 3, 4, 5] @?= Node Black 4 (Node Black 2 (Node Red 1 Nil Nil) (Node Red 3 Nil Nil)) (Node Black 5 Nil Nil)
     , testCase "Search from Nil" $
       search Nil "foo" @?= Nothing
     , testCase "Search from simple tree" $

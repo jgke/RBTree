@@ -1,7 +1,10 @@
 module Lib where
 
-import Data.Maybe (fromJust, isJust)
+import Data.Maybe (fromJust, fromMaybe, isJust)
 import Data.Functor ((<&>))
+import Control.Applicative ((<|>))
+import Debug.Trace
+import Unsafe.Coerce
 
 data Color = Black | Red
              deriving (Eq, Show)
@@ -59,7 +62,11 @@ allTree f tree = not $ anyTree (not . f) tree
 flatten :: (Foldable t, Ord a) => t (RBTree a) -> RBTree a
 flatten treeSet = foldr addAll Nil treeSet
 
--- color manipulation
+-- node manipulation
+
+setValue :: a -> RBTree a -> RBTree a
+setValue nx (Node c _ l r) = Node c nx l r
+setValue _ Nil = Nil
 
 isBlack :: RBTree a -> Bool
 isBlack (Node Black _ _ _) = True
@@ -130,6 +137,11 @@ swapColorWithParent (((RBLeft pc pa pn):t), (Node c x l r)) = Just (((RBLeft c p
 swapColorWithParent (((RBRight pc pa pn):t), (Node c x l r)) = Just (((RBRight c pa pn):t), (Node pc x l r))
 swapColorWithParent _ = Nothing
 
+swapValueWithParent :: Zipper a -> Maybe (Zipper a)
+swapValueWithParent (((RBLeft pc pa pn):t), (Node c x l r)) = Just (((RBLeft pc x pn):t), (Node c pa l r))
+swapValueWithParent (((RBRight pc pa pn):t), (Node c x l r)) = Just (((RBRight pc x pn):t), (Node c pa l r))
+swapValueWithParent _ = Nothing
+
 currentToRedAndChildrenToBlack :: Zipper a -> Maybe (Zipper a)
 currentToRedAndChildrenToBlack (_, Nil) = Nothing
 currentToRedAndChildrenToBlack (t, Node _ v l r) = Just (t, Node Red v (toBlack l) (toBlack r))
@@ -148,7 +160,7 @@ addToZipper value z@(thread, tree) =
   case getNodeValue tree <&> (compare value) of
     Nothing -> fromJust $ postAddRotation (thread, makeRed value)
     (Just LT) -> addToZipper value (fromJust $ takeLeft z)
-    (Just EQ) -> addToZipper value (fromJust $ takeRight z) -- for a tree without duplicates, change this case to 'z'
+    (Just EQ) -> z
     (Just GT) -> addToZipper value (fromJust $ takeRight z)
 
 handleRedUncle :: (Ord a) => Zipper a -> Maybe (Zipper a)
@@ -175,18 +187,60 @@ postAddRotation z@(t, n) =
 -- deletion
 
 delete :: (Ord a) => a -> RBTree a -> RBTree a
-delete a Nil = Nil
 delete a tree = unzipper $ removeFromZipper a $ zipper tree
 
-postRemoveRotation = Just . id
+swapValue :: a -> Zipper a -> Maybe (a, Zipper a)
+swapValue x (t, (Node c nx l r)) = Just (nx, (t, Node c x l r))
+swapValue _ (_, Nil) = Nothing
+
+mapSnd :: (b -> c) -> (a, b) -> (a, c)
+mapSnd f (a, b) = (a, f b)
+
+toSuccessor :: (Ord a) => a -> Zipper a -> Maybe (Zipper a)
+toSuccessor value z@(thread, tree) =
+  case getNodeValue tree <&> (compare value) of
+    Nothing -> Nothing
+    (Just GT) -> takeRight z >>= toSuccessor value
+    (Just EQ) -> takeRight z >>= toSuccessor value
+    (Just LT) -> (takeLeft z >>= toSuccessor value) <|> Just z
+
+coerceZDebug :: Zipper a -> Zipper Int
+coerceZDebug = unsafeCoerce
+
+debugZ :: Zipper a -> b -> b
+debugZ = traceShow . coerceZDebug
+
+swapValueWithSuccessor :: (Ord a) => Zipper a -> Maybe (Zipper a)
+swapValueWithSuccessor (_, Nil) = Nothing
+swapValueWithSuccessor z@(thread, n@(Node c v l r)) = let successor = fromJust $ toSuccessor v $ zipper r
+                                                          successorValue = fromJust $ getNodeValue $ snd successor
+                                                          newParent = Node c successorValue l r
+                                                          newZipper = fromJust $ takeRight (thread, newParent)
+                                                      in Just ((fst successor)++(fst newZipper), setValue v $ snd successor)
+
+dropNode :: (Ord a) => Zipper a -> Zipper a
+dropNode (t, Nil) = (t, Nil)
+dropNode (t, Node _ _ Nil Nil) = (t, Nil)
+dropNode (t, Node _ _ Nil r) = (t, r)
+dropNode z@(t, Node _ _ l Nil) = (t, l)
+dropNode z@(thread, n@(Node c v l r)) = fromJust $ swapValueWithSuccessor z <&> dropNode
+
+zipTo :: (Ord a) => a -> Zipper a -> Maybe (Zipper a)
+zipTo value z@(thread, tree) = 
+  case getNodeValue tree <&> (compare value) of
+    Nothing -> Nothing
+    (Just LT) -> takeLeft z >>= zipTo value
+    (Just EQ) -> Just z
+    (Just GT) -> takeRight z >>= zipTo value
 
 removeFromZipper :: (Ord a) => a -> Zipper a -> Zipper a
-removeFromZipper value z@(thread, tree) =
-  case getNodeValue tree <&> (compare value) of
-    Nothing -> fromJust $ postRemoveRotation (thread, Nil)
-    (Just LT) -> removeFromZipper value (fromJust $ takeLeft z)
-    (Just EQ) -> removeFromZipper value (fromJust $ takeRight z) -- for a tree without duplicates, change this case to 'z'
-    (Just GT) -> removeFromZipper value (fromJust $ takeRight z)
+removeFromZipper value z =
+  case (zipTo value z) of
+    Nothing -> z
+    (Just node) -> postRemoveRotation Black $ dropNode node
+
+postRemoveRotation :: Color ->  Zipper a -> Zipper a
+postRemoveRotation removedColor z = z
 
 -- instances
 
