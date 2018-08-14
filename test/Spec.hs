@@ -23,8 +23,6 @@ instance Arbitrary (Operation Int) where
     val <- choose (1, 10)
     oneof [return $ Insert val, return $ Delete val]
 
-vals = map Insert [1..10] ++ map Delete [1..10]
-
 instance Serial m a => Serial m (Operation a) where
   series = cons1 Insert \/ cons1 Delete
 

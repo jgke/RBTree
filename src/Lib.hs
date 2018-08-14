@@ -117,10 +117,10 @@ back (RBRight c x l:t, r) = Just (t, Node c x l r)
 current :: Zipper a -> RBTree a
 current (_, node) = node
 
-sibling :: Zipper a -> Maybe (RBTree a)
+sibling :: Zipper a -> Maybe (Zipper a)
 sibling ([], _) = Nothing
-sibling (RBLeft _ _ r:_, _) = Just r
-sibling (RBRight _ _ l:_, _) = Just l
+sibling z@(RBLeft _ _ r:_, _) = back z >>= takeRight
+sibling z@(RBRight _ _ l:_, _) = back z >>= takeLeft
 
 -- modifying zippers
 
@@ -182,7 +182,7 @@ postAddRotation z@(t, n) =
         (Just _, Just False) -> handleRedUncle z
         (Just False, Nothing) -> error "Parent cannot be red if it has no siblings (violates 3 or 4)"
     where isParentBlack = back z <&> current <&> isBlack
-          isUncleBlack = back z >>= sibling <&> isBlack
+          isUncleBlack = back z >>= sibling <&> snd <&> isBlack
 
 -- deletion
 
@@ -209,6 +209,9 @@ coerceZDebug = unsafeCoerce
 
 debugZ :: Zipper a -> b -> b
 debugZ = traceShow . coerceZDebug
+
+debugZid :: Zipper a -> Zipper a
+debugZid z = (traceShow . coerceZDebug) z z
 
 swapValueWithSuccessor :: (Ord a) => Zipper a -> Maybe (Zipper a)
 swapValueWithSuccessor (_, Nil) = Nothing
@@ -237,12 +240,35 @@ removeFromZipper :: (Ord a) => a -> Zipper a -> Zipper a
 removeFromZipper value z =
   case (zipTo value z) of
     Nothing -> z
-    (Just node) -> (uncurry postRemoveRotation) $ dropNode node
+    (Just node) -> (uncurry $ flip postRemoveRotation) $ dropNode node
 
-postRemoveRotation :: Zipper a -> Color -> Zipper a
-postRemoveRotation z Red = mapSnd toBlack z
-postRemoveRotation z@(_, Node Red _ _ _) _ = mapSnd toBlack z
-postRemoveRotation z color = z
+areChildrenRed :: Zipper a -> (Maybe Bool, Maybe Bool)
+areChildrenRed z = (takeLeft z <&> snd <&> isRed, takeRight z <&> snd <&> isRed)
+
+handleRedSibling :: Zipper a -> Maybe (Zipper a)
+handleRedSibling z@(RBLeft{}:t, n) = back z >>= rotateLeft <&> mapSnd toBlack >>= takeLeft <&> mapSnd toBlack >>= takeRight <&> mapSnd toRed
+handleRedSibling z@(RBRight{}:t, n) = back z >>= rotateRight <&> mapSnd toBlack >>= takeRight <&> mapSnd toBlack >>= takeLeft <&> mapSnd toRed
+
+handleBlackSibling :: Zipper a -> Maybe (Zipper a)
+handleBlackSibling z@(RBLeft{}:t, n) =
+    case (areChildrenRed $ fromJust $ sibling z) of
+        (Just True, _) -> back z >>= rotateLeft >>= takeRight <&> mapSnd toBlack
+        (_, Just True) -> back z >>= rotateLeft >>= rotateLeft >>= takeRight <&> mapSnd toBlack
+        _ -> back z >>= takeRight <&> mapSnd toRed >>= back <&> postRemoveRotation Black
+handleBlackSibling z@(RBRight{}:t, n) =
+    case (areChildrenRed $ fromJust $ sibling z) of
+        (Just True, _) -> back z >>= rotateRight >>= rotateRight >>= takeLeft <&> mapSnd toBlack
+        (_, Just True) -> back z >>= rotateRight >>= takeLeft <&> mapSnd toBlack
+        _ -> back z >>= takeLeft <&> mapSnd toRed >>= back <&> postRemoveRotation Black
+
+postRemoveRotation :: Color -> Zipper a -> Zipper a
+postRemoveRotation Red z = mapSnd toBlack z
+postRemoveRotation _ z@(_, Node Red _ _ _) = mapSnd toBlack z
+postRemoveRotation _ z@([], _) = z
+postRemoveRotation color z = case (sibling z <&> snd <&> isRed) of
+    Just True -> fromJust $ handleRedSibling z
+    Just False -> fromJust $ handleBlackSibling z
+    Nothing -> error "unreachable"
 
 -- instances
 
