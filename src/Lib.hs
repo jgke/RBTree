@@ -218,11 +218,11 @@ swapValueWithSuccessor z@(thread, n@(Node c v l r)) = let successor = fromJust $
                                                           newZipper = fromJust $ takeRight (thread, newParent)
                                                       in Just ((fst successor)++(fst newZipper), setValue v $ snd successor)
 
-dropNode :: (Ord a) => Zipper a -> Zipper a
-dropNode (t, Nil) = (t, Nil)
-dropNode (t, Node _ _ Nil Nil) = (t, Nil)
-dropNode (t, Node _ _ Nil r) = (t, r)
-dropNode z@(t, Node _ _ l Nil) = (t, l)
+dropNode :: (Ord a) => Zipper a -> (Zipper a, Color)
+dropNode (t, Nil) = ((t, Nil), Black)
+dropNode (t, Node c _ Nil Nil) = ((t, Nil), c)
+dropNode (t, Node c _ Nil r) = ((t, r), c)
+dropNode z@(t, Node c _ l Nil) = ((t, l), c)
 dropNode z@(thread, n@(Node c v l r)) = fromJust $ swapValueWithSuccessor z <&> dropNode
 
 zipTo :: (Ord a) => a -> Zipper a -> Maybe (Zipper a)
@@ -237,10 +237,12 @@ removeFromZipper :: (Ord a) => a -> Zipper a -> Zipper a
 removeFromZipper value z =
   case (zipTo value z) of
     Nothing -> z
-    (Just node) -> postRemoveRotation Black $ dropNode node
+    (Just node) -> (uncurry postRemoveRotation) $ dropNode node
 
-postRemoveRotation :: Color ->  Zipper a -> Zipper a
-postRemoveRotation removedColor z = z
+postRemoveRotation :: Zipper a -> Color -> Zipper a
+postRemoveRotation z Red = mapSnd toBlack z
+postRemoveRotation z@(_, Node Red _ _ _) _ = mapSnd toBlack z
+postRemoveRotation z color = z
 
 -- instances
 

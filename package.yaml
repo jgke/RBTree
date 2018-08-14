@@ -49,5 +49,6 @@ tests:
     - rbtree
     - tasty >= 1.1.0.2
     - tasty-hunit >= 0.10.0.1
+    - smallcheck >= 1.1.5
     - tasty-smallcheck >= 0.8.1
     - tasty-quickcheck >= 0.10

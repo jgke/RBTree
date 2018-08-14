@@ -1,9 +1,10 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE Rank2Types #-}
-{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses #-}
 
 import Test.Tasty
 import Test.Tasty.SmallCheck as SC
+import Test.SmallCheck.Series as SCSeries
 import Test.Tasty.QuickCheck as QC
 import Test.Tasty.HUnit
 
@@ -22,6 +23,11 @@ instance Arbitrary (Operation Int) where
     val <- choose (1, 10)
     oneof [return $ Insert val, return $ Delete val]
 
+vals = map Insert [1..10] ++ map Delete [1..10]
+
+instance Serial m a => Serial m (Operation a) where
+  series = cons1 Insert \/ cons1 Delete
+
 operate :: (Ord a) => RBTree a -> [Operation a] -> RBTree a
 operate tree [] = tree
 operate tree (Insert item:xs) = operate (add item tree) xs
@@ -37,7 +43,7 @@ properties :: TestTree
 properties = testGroup "Properties" $ [ scProps, qcProps ]
 
 scProps :: TestTree
-scProps = testGroup "(checked by SmallCheck)" $ makeTests SC.testProperty
+scProps = testGroup "(checked by SmallCheck)" $ makeTests SC.testProperty ++ [treeIsValidAfterAnyOperation SC.testProperty]
 
 qcProps :: TestTree
 qcProps = testGroup "(checked by QuickCheck)" $ makeTests QC.testProperty ++ [treeIsValidAfterAnyOperation QC.testProperty]
@@ -61,7 +67,7 @@ treesAreSorted :: Tester
 treesAreSorted a =  a "All trees are sorted" $ \val -> treeIsSorted $ addAll Nil val
 
 countOfBlackChildrenIsEqual :: RBTree a -> Bool
-countOfBlackChildrenIsEqual tree = allTree (\x -> liftM countBlackChildren (getLeft x) == liftM countBlackChildren (getRight x)) tree
+countOfBlackChildrenIsEqual tree = countBlackChildren tree > 0
 
 containsNoAdjacentRedNodes :: RBTree a -> Bool
 containsNoAdjacentRedNodes tree = not $ anyTree childAndParentIsRed tree
@@ -85,7 +91,10 @@ noAdjacentRedNodes a = a "There are no adjacent red nodes" $ \val -> containsNoA
 
 countBlackChildren :: RBTree a -> Int
 countBlackChildren Nil = 1
-countBlackChildren (Node _ _ l r) = max (countBlackChildren l) (countBlackChildren r)
+countBlackChildren (Node c _ l r) = if (left == right) then left+add else error "Unbalanced left and right black children"
+                                    where left = countBlackChildren l
+                                          right = countBlackChildren r
+                                          add = if (c == Black) then 1 else 0
 
 redBlackProperties :: (Ord a) => [RBTree a -> Bool]
 redBlackProperties = [treeIsSorted, containsNoAdjacentRedNodes, countOfBlackChildrenIsEqual]
@@ -161,4 +170,6 @@ unitTests = testGroup "Unit tests"
       search (addAll (makeIntTree 4) [1, 2, 3, 4, 5]) 1 @?= Just 1
     , testCase "Search from larger tree" $
       search (addAll (makeIntTree 4) [1, 2, 3, 4, 5]) 0 @?= Nothing
+    , testCase "Validate double black delete" $
+      validateTree (Lib.delete 0 (Node Black 1 (Node Black 0 Nil Nil) (Node Black 2 Nil Nil))) @?= True
   ]
