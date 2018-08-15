@@ -229,7 +229,7 @@ dropNode z@(t, Node c _ l Nil) = ((t, l), c)
 dropNode z@(thread, n@(Node c v l r)) = fromJust $ swapValueWithSuccessor z <&> dropNode
 
 zipTo :: (Ord a) => a -> Zipper a -> Maybe (Zipper a)
-zipTo value z@(thread, tree) = 
+zipTo value z@(thread, tree) =
   case getNodeValue tree <&> (compare value) of
     Nothing -> Nothing
     (Just LT) -> takeLeft z >>= zipTo value
@@ -246,25 +246,25 @@ areChildrenRed :: Zipper a -> (Maybe Bool, Maybe Bool)
 areChildrenRed z = (takeLeft z <&> snd <&> isRed, takeRight z <&> snd <&> isRed)
 
 handleRedSibling :: Zipper a -> Maybe (Zipper a)
-handleRedSibling z@(RBLeft{}:t, n) = back z >>= rotateLeft <&> mapSnd toBlack >>= takeLeft <&> mapSnd toBlack >>= takeRight <&> mapSnd toRed
-handleRedSibling z@(RBRight{}:t, n) = back z >>= rotateRight <&> mapSnd toBlack >>= takeRight <&> mapSnd toBlack >>= takeLeft <&> mapSnd toRed
+handleRedSibling z@(RBLeft{}:t, n) = back z >>= rotateLeft <&> mapSnd toBlack >>= takeLeft <&> mapSnd toRed >>= takeLeft <&> postRemoveRotation Black
+handleRedSibling z@(RBRight{}:t, n) = back z >>= rotateRight <&> mapSnd toBlack >>= takeRight <&> mapSnd toRed >>= takeRight <&> postRemoveRotation Black
 
 handleBlackSibling :: Zipper a -> Maybe (Zipper a)
 handleBlackSibling z@(RBLeft{}:t, n) =
     case (areChildrenRed $ fromJust $ sibling z) of
-        (Just True, _) -> back z >>= rotateLeft >>= takeRight <&> mapSnd toBlack
-        (_, Just True) -> back z >>= rotateLeft >>= rotateLeft >>= takeRight <&> mapSnd toBlack
-        _ -> back z >>= takeRight <&> mapSnd toRed >>= back <&> postRemoveRotation Black
+        (_, Just True) -> back z >>= rotateLeft >>= takeLeft >>= swapColorWithParent >>= back >>= takeRight <&> mapSnd toBlack
+        (Just True, _) -> sibling z >>= rotateRight <&> mapSnd toBlack >>= back >>= rotateLeft >>= takeLeft >>= swapColorWithParent
+        _ -> sibling z <&> mapSnd toRed >>= back <&> postRemoveRotation Black
 handleBlackSibling z@(RBRight{}:t, n) =
     case (areChildrenRed $ fromJust $ sibling z) of
-        (Just True, _) -> back z >>= rotateRight >>= rotateRight >>= takeLeft <&> mapSnd toBlack
-        (_, Just True) -> back z >>= rotateRight >>= takeLeft <&> mapSnd toBlack
-        _ -> back z >>= takeLeft <&> mapSnd toRed >>= back <&> postRemoveRotation Black
+        (Just True, _) -> back z >>= rotateRight >>= takeRight >>= swapColorWithParent >>= back >>= takeLeft <&> mapSnd toBlack
+        (_, Just True) -> sibling z >>= rotateLeft <&> mapSnd toBlack >>= back >>= rotateRight >>= takeRight >>= swapColorWithParent
+        _ -> sibling z <&> mapSnd toRed >>= back <&> postRemoveRotation Black
 
 postRemoveRotation :: Color -> Zipper a -> Zipper a
 postRemoveRotation Red z = mapSnd toBlack z
 postRemoveRotation _ z@(_, Node Red _ _ _) = mapSnd toBlack z
-postRemoveRotation _ z@([], _) = z
+postRemoveRotation _ z@([], _) = mapSnd toBlack z
 postRemoveRotation color z = case (sibling z <&> snd <&> isRed) of
     Just True -> fromJust $ handleRedSibling z
     Just False -> fromJust $ handleBlackSibling z
