@@ -8,12 +8,13 @@ import Test.SmallCheck.Series as SCSeries
 import Test.Tasty.QuickCheck as QC
 import Test.Tasty.HUnit
 
-import Lib
-
 import Data.List
 import Data.Foldable
 import Data.Maybe (isJust)
 import Data.Functor
+
+import RBTree
+import RBTree.Internal
 
 data Operation a = Insert a | Delete a deriving (Show)
 instance Arbitrary (Operation Int) where
@@ -27,7 +28,7 @@ instance Serial m a => Serial m (Operation a) where
 operate :: (Ord a) => RBTree a -> [Operation a] -> RBTree a
 operate tree [] = tree
 operate tree (Insert item:xs) = operate (add item tree) xs
-operate tree (Delete item:xs) = operate (Lib.delete item tree) xs
+operate tree (Delete item:xs) = operate (remove item tree) xs
 
 tests :: TestTree
 tests = testGroup "Tests" [properties, unitTests]
@@ -55,11 +56,6 @@ uniq (x:y:xs) = if (x == y) then uniq (x:xs) else [x] ++ uniq (y:xs)
 treeIsSorted :: (Eq a, Ord a) => RBTree a -> Bool
 treeIsSorted tree = (toList tree) == (uniq $ sort $ toList tree)
 
-rootIsBlack :: RBTree a -> Bool
-rootIsBlack (Node Black _ _ _) = True
-rootIsBlack (Nil) = True
-rootIsBlack _ = False
-
 treesAreSorted :: Tester
 treesAreSorted a =  a "All trees are sorted" $ \val -> treeIsSorted $ addAll Nil val
 
@@ -74,18 +70,14 @@ makeTreeAIsBlack a = a "makeTree a is black" $ \val ->
   (length val /= 1) || (makeTree (head val) :: RBTree Int) == Node Black (head val) Nil Nil
 
 rootOfTreeIsAlwaysBlack :: Tester
-rootOfTreeIsAlwaysBlack a = a "Root of tree is always black" $ \val -> rootIsBlack $ makeTree val
-
-nodeIsRed :: RBTree a -> Bool
-nodeIsRed (Node Red _ _ _) = True
-nodeIsRed _ = False
+rootOfTreeIsAlwaysBlack a = a "Root of tree is always black" $ \val -> isBlack $ addAll Nil val
 
 childIsRed :: RBTree a -> Bool
 childIsRed Nil = False
-childIsRed (Node _ _ l r)  = nodeIsRed l || nodeIsRed r
+childIsRed (Node _ _ l r)  = isRed l || isRed r
 
 childAndParentIsRed :: RBTree a -> Bool
-childAndParentIsRed tree = nodeIsRed tree && childIsRed tree
+childAndParentIsRed tree = isRed tree && childIsRed tree
 
 noAdjacentRedNodes :: Tester
 noAdjacentRedNodes a = a "There are no adjacent red nodes" $ \val -> containsNoAdjacentRedNodes $ addAll Nil val
@@ -125,9 +117,9 @@ searchWorks :: Tester
 searchWorks a = a "Searching tree" $ \val -> val == [] || searchSome val
 
 deleteSome :: [Int] -> Bool
-deleteSome a@(x:xs) = all (Lib.exists tree) (filter (/= x) xs) && (not (Lib.exists tree x))
+deleteSome a@(x:xs) = all (RBTree.exists tree) (filter (/= x) xs) && (not (RBTree.exists tree x))
     where fullTree = addAll Nil a
-          tree = Lib.delete x fullTree
+          tree = remove x fullTree
 deleteSome _ = error ""
 
 deleteSimple :: Tester
@@ -172,7 +164,7 @@ unitTests = testGroup "Unit tests"
     , testCase "Search from larger tree" $
       search (addAll (makeIntTree 4) [1, 2, 3, 4, 5]) 0 @?= Nothing
     , testCase "Validate double black delete" $
-      validateTree (Lib.delete (0 :: Int) (Node Black 1 (Node Black 0 Nil Nil) (Node Black 2 Nil Nil))) @?= True
+      validateTree (remove (0 :: Int) (Node Black 1 (Node Black 0 Nil Nil) (Node Black 2 Nil Nil))) @?= True
 
     , testCase "bemoved Red 1" $
       (Just (Node Black 1 (Node Black 0 Nil Nil) (Node Black 2 Nil Nil)) <&> zipper >>= goLeft <&> postRemoveRotation Red <&> unzipper :: Maybe (RBTree Int))

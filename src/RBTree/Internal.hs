@@ -1,4 +1,6 @@
-module Lib where
+{-# LANGUAGE TypeSynonymInstances, FlexibleInstances #-}
+
+module RBTree.Internal where
 
 import Data.Maybe (fromJust, isJust)
 import Data.Functor ((<&>))
@@ -10,7 +12,20 @@ data RBTree a = Nil
               | Node Color a (RBTree a) (RBTree a)
               deriving (Eq, Show)
 
+class Colorable a where
+  getColor :: a -> Color
+  setColor :: Color -> a -> a
+
+instance Colorable (RBTree a) where
+  getColor (Node c _ _ _) = c
+  getColor Nil = Black
+  setColor c (Node _ v l r) = (Node c v l r)
+  setColor _ Nil = Nil
+
 -- basic query functions
+
+emptyTree :: RBTree a
+emptyTree = Nil
 
 makeTree :: a -> RBTree a
 makeTree a = Node Black a Nil Nil
@@ -66,13 +81,17 @@ setValue :: a -> RBTree a -> RBTree a
 setValue nx (Node c _ l r) = Node c nx l r
 setValue _ Nil = Nil
 
-toBlack :: RBTree a -> RBTree a
-toBlack (Node _ x l r) = Node Black x l r
-toBlack Nil = Nil
+toBlack :: (Colorable a) => a -> a
+toBlack = setColor Black
 
-toRed :: RBTree a -> RBTree a
-toRed (Node _ x l r) = Node Red x l r
-toRed Nil = Nil
+toRed :: (Colorable a) => a -> a
+toRed = setColor Red
+
+isBlack :: (Colorable a) => a -> Bool
+isBlack c = getColor c == Black
+
+isRed :: (Colorable a) => a -> Bool
+isRed c = getColor c == Red
 
 -- zipper
 
@@ -81,6 +100,10 @@ data Branch a = RBLeft Color a (RBTree a)
               | RBRight Color a (RBTree a)
               deriving (Eq, Show)
 type Thread a = [Branch a]
+
+instance Colorable (Zipper a) where
+    getColor = getColor . snd
+    setColor c (t, n) = (t, setColor c n)
 
 zipper :: RBTree a -> Zipper a
 zipper t = ([], t)
@@ -107,15 +130,6 @@ sibling :: Zipper a -> Maybe (Zipper a)
 sibling ([], _) = Nothing
 sibling z@(RBLeft{}:_, _) = goBack z >>= goRight
 sibling z@(RBRight{}:_, _) = goBack z >>= goLeft
-
-isBlack :: Zipper a -> Bool
-isBlack (_, Node Black _ _ _) = True
-isBlack (_, Nil) = True
-isBlack _ = False
-
-isRed :: Zipper a -> Bool
-isRed (_, Node Red _ _ _) = True
-isRed _ = False
 
 -- modifying zippers
 
@@ -181,8 +195,8 @@ postAddRotation z@(t, n) =
 
 -- deletion
 
-delete :: (Ord a) => a -> RBTree a -> RBTree a
-delete a tree = unzipper $ removeFromZipper a $ zipper tree
+remove :: (Ord a) => a -> RBTree a -> RBTree a
+remove a tree = unzipper $ removeFromZipper a $ zipper tree
 
 swapValue :: a -> Zipper a -> Maybe (a, Zipper a)
 swapValue x (t, (Node c nx l r)) = Just (nx, (t, Node c x l r))
