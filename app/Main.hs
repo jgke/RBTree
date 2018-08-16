@@ -3,6 +3,7 @@ module Main where
 import Criterion.Main
 import Data.Bits
 import Data.List
+import Data.Foldable
 import Lib
 
 xorshift :: Int -> Int
@@ -11,17 +12,37 @@ xorshift n = x3
         x2 = x1 `xor` (x1 `shift` 17)
         x3 = x2 `xor` (x2 `shift` (-5))
 
-addNRandom :: Int -> RBTree Int
-addNRandom n = foldl' (flip add) Nil $ take (2^n) $ iterate xorshift 1
+randomStream :: [Int]
+randomStream = iterate xorshift 1
+
+addNRandom :: RBTree Int -> Int -> RBTree Int
+addNRandom tree n = addAll tree $ take (2^n) randomStream
+
+rop :: Int -> RBTree Int -> RBTree Int
+rop n tree = case (even n) of
+    True -> add n tree
+    False -> Lib.delete (n+1) tree
+
+opNRandom :: RBTree Int -> Int -> RBTree Int
+opNRandom tree n = foldl' (flip rop) tree $ take (2^n) $ map (.&. 65535) randomStream
+
+lookupNRandom :: RBTree Int -> Int -> Bool
+lookupNRandom tree n = foldl' (flip $ xor . exists tree) True $ take (2^n) randomStream
+
+testAdd :: Int -> Benchmark
+testAdd n = bench ("RBTree add 2^" ++ show n) $ whnf (addNRandom Nil) n
+
+testOperate :: Int -> Benchmark
+testOperate n = bench ("RBTree operate 2^" ++ show n) $ whnf (opNRandom Nil) n
+
+constTree :: RBTree Int
+constTree = addNRandom Nil 20
+
+testLookup :: Int -> Benchmark
+testLookup n = bench ("RBTree lookup 2^" ++ show n) $ whnf (lookupNRandom constTree) n
 
 main :: IO ()
-main = defaultMain [ bgroup "add" [
-            bench "RBTree add 2^8" $ whnf addNRandom 8,
-            bench "RBTree add 2^9" $ whnf addNRandom 9,
-            bench "RBTree add 2^10" $ whnf addNRandom 10,
-            bench "RBTree add 2^11" $ whnf addNRandom 11,
-            bench "RBTree add 2^l2" $ whnf addNRandom 12,
-            bench "RBTree add 2^13" $ whnf addNRandom 13,
-            bench "RBTree add 2^14" $ whnf addNRandom 14
-        ]
-    ]
+main = defaultMain [ bgroup "add" $ map testAdd [12..16],
+                     bgroup "op" $ map testOperate [12..16],
+                     bgroup "lookup" $ map testLookup [12..16] ]
+

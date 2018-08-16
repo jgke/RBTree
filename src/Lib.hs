@@ -66,15 +66,6 @@ setValue :: a -> RBTree a -> RBTree a
 setValue nx (Node c _ l r) = Node c nx l r
 setValue _ Nil = Nil
 
-isBlack :: RBTree a -> Bool
-isBlack (Node Black _ _ _) = True
-isBlack Nil = True
-isBlack _ = False
-
-isRed :: RBTree a -> Bool
-isRed (Node Red _ _ _) = True
-isRed _ = False
-
 toBlack :: RBTree a -> RBTree a
 toBlack (Node _ x l r) = Node Black x l r
 toBlack Nil = Nil
@@ -94,31 +85,37 @@ type Thread a = [Branch a]
 zipper :: RBTree a -> Zipper a
 zipper t = ([], t)
 
+goLeft :: Zipper a -> Maybe (Zipper a)
+goLeft (t, Node c v l r) = Just (RBLeft c v r:t, l)
+goLeft _ = Nothing
+
+goRight :: Zipper a -> Maybe (Zipper a)
+goRight (t, Node c v l r) = Just (RBRight c v l:t, r)
+goRight _ = Nothing
+
+goBack :: Zipper a -> Maybe (Zipper a)
+goBack ([], _) = Nothing
+goBack (RBLeft c x r:t, l) = Just (t, Node c x l r)
+goBack (RBRight c x l:t, r) = Just (t, Node c x l r)
+
 unzipper :: Zipper a -> RBTree a
 unzipper ([], t) = t
 unzipper (RBLeft c x r:t, l) = unzipper (t, Node c x l r)
 unzipper (RBRight c x l:t, r) = unzipper (t, Node c x l r)
 
-takeLeft :: Zipper a -> Maybe (Zipper a)
-takeLeft (t, Node c v l r) = Just (RBLeft c v r:t, l)
-takeLeft _ = Nothing
-
-takeRight :: Zipper a -> Maybe (Zipper a)
-takeRight (t, Node c v l r) = Just (RBRight c v l:t, r)
-takeRight _ = Nothing
-
-back :: Zipper a -> Maybe (Zipper a)
-back ([], _) = Nothing
-back (RBLeft c x r:t, l) = Just (t, Node c x l r)
-back (RBRight c x l:t, r) = Just (t, Node c x l r)
-
-current :: Zipper a -> RBTree a
-current (_, node) = node
-
 sibling :: Zipper a -> Maybe (Zipper a)
 sibling ([], _) = Nothing
-sibling z@(RBLeft{}:_, _) = back z >>= takeRight
-sibling z@(RBRight{}:_, _) = back z >>= takeLeft
+sibling z@(RBLeft{}:_, _) = goBack z >>= goRight
+sibling z@(RBRight{}:_, _) = goBack z >>= goLeft
+
+isBlack :: Zipper a -> Bool
+isBlack (_, Node Black _ _ _) = True
+isBlack (_, Nil) = True
+isBlack _ = False
+
+isRed :: Zipper a -> Bool
+isRed (_, Node Red _ _ _) = True
+isRed _ = False
 
 -- modifying zippers
 
@@ -157,18 +154,18 @@ addToZipper :: (Ord a) => a -> Zipper a -> Zipper a
 addToZipper value z@(thread, tree) =
   case getNodeValue tree <&> (compare value) of
     Nothing -> fromJust $ postAddRotation (thread, makeRed value)
-    (Just LT) -> addToZipper value (fromJust $ takeLeft z)
+    (Just LT) -> addToZipper value (fromJust $ goLeft z)
     (Just EQ) -> z
-    (Just GT) -> addToZipper value (fromJust $ takeRight z)
+    (Just GT) -> addToZipper value (fromJust $ goRight z)
 
 handleRedUncle :: (Ord a) => Zipper a -> Maybe (Zipper a)
-handleRedUncle child = back child >>= back >>= currentToRedAndChildrenToBlack >>= postAddRotation
+handleRedUncle child = goBack child >>= goBack >>= currentToRedAndChildrenToBlack >>= postAddRotation
 
 handleBlackUncle :: Zipper a -> Maybe (Zipper a)
-handleBlackUncle z@(RBLeft{}:RBLeft{}:_, _)   = back z >>= swapColorWithParent >>= back >>= rotateRight
-handleBlackUncle z@(RBRight{}:RBRight{}:_, _) = back z >>= swapColorWithParent >>= back >>= rotateLeft
-handleBlackUncle z@(RBLeft{}:RBRight{}:_, _)  = back z >>= rotateRight >>= takeRight >>= handleBlackUncle
-handleBlackUncle z@(RBRight{}:RBLeft{}:_, _)  = back z >>= rotateLeft >>= takeLeft >>= handleBlackUncle
+handleBlackUncle z@(RBLeft{}:RBLeft{}:_, _)   = goBack z >>= swapColorWithParent >>= goBack >>= rotateRight
+handleBlackUncle z@(RBRight{}:RBRight{}:_, _) = goBack z >>= swapColorWithParent >>= goBack >>= rotateLeft
+handleBlackUncle z@(RBLeft{}:RBRight{}:_, _)  = goBack z >>= rotateRight >>= goRight >>= handleBlackUncle
+handleBlackUncle z@(RBRight{}:RBLeft{}:_, _)  = goBack z >>= rotateLeft >>= goLeft >>= handleBlackUncle
 handleBlackUncle _ = Nothing
 
 postAddRotation :: (Ord a) => Zipper a -> Maybe (Zipper a)
@@ -179,8 +176,8 @@ postAddRotation z@(t, n) =
         (Just _, Just True) -> handleBlackUncle z
         (Just _, Just False) -> handleRedUncle z
         (Just False, Nothing) -> error "Parent cannot be red if it has no siblings (violates 3 or 4)"
-    where isParentBlack = back z <&> current <&> isBlack
-          isUncleBlack = back z >>= sibling <&> snd <&> isBlack
+    where isParentBlack = goBack z <&> isBlack
+          isUncleBlack = goBack z >>= sibling <&> isBlack
 
 -- deletion
 
@@ -198,16 +195,16 @@ toSuccessor :: (Ord a) => a -> Zipper a -> Maybe (Zipper a)
 toSuccessor value z@(_, tree) =
   case getNodeValue tree <&> (compare value) of
     Nothing -> Nothing
-    (Just GT) -> takeRight z >>= toSuccessor value
-    (Just EQ) -> takeRight z >>= toSuccessor value
-    (Just LT) -> (takeLeft z >>= toSuccessor value) <|> Just z
+    (Just GT) -> goRight z >>= toSuccessor value
+    (Just EQ) -> goRight z >>= toSuccessor value
+    (Just LT) -> (goLeft z >>= toSuccessor value) <|> Just z
 
 swapValueWithSuccessor :: (Ord a) => Zipper a -> Maybe (Zipper a)
 swapValueWithSuccessor (_, Nil) = Nothing
 swapValueWithSuccessor (thread, (Node c v l r)) = let successor = fromJust $ toSuccessor v $ zipper r
                                                       successorValue = fromJust $ getNodeValue $ snd successor
                                                       newParent = Node c successorValue l r
-                                                      newZipper = fromJust $ takeRight (thread, newParent)
+                                                      newZipper = fromJust $ goRight (thread, newParent)
                                                   in  Just ((fst successor)++(fst newZipper), setValue v $ snd successor)
 
 dropNode :: (Ord a) => Zipper a -> (Zipper a, Color)
@@ -221,9 +218,9 @@ zipTo :: (Ord a) => a -> Zipper a -> Maybe (Zipper a)
 zipTo value z@(_, tree) =
   case getNodeValue tree <&> (compare value) of
     Nothing -> Nothing
-    (Just LT) -> takeLeft z >>= zipTo value
+    (Just LT) -> goLeft z >>= zipTo value
     (Just EQ) -> Just z
-    (Just GT) -> takeRight z >>= zipTo value
+    (Just GT) -> goRight z >>= zipTo value
 
 removeFromZipper :: (Ord a) => a -> Zipper a -> Zipper a
 removeFromZipper value z =
@@ -232,31 +229,31 @@ removeFromZipper value z =
     (Just node) -> (uncurry $ flip postRemoveRotation) $ dropNode node
 
 areChildrenRed :: Zipper a -> (Maybe Bool, Maybe Bool)
-areChildrenRed z = (takeLeft z <&> snd <&> isRed, takeRight z <&> snd <&> isRed)
+areChildrenRed z = (goLeft z <&> isRed, goRight z <&> isRed)
 
 handleRedSibling :: Zipper a -> Maybe (Zipper a)
-handleRedSibling z@(RBLeft{}:_, _) = back z >>= rotateLeft <&> mapSnd toBlack >>= takeLeft <&> mapSnd toRed >>= takeLeft <&> postRemoveRotation Black
-handleRedSibling z@(RBRight{}:_, _) = back z >>= rotateRight <&> mapSnd toBlack >>= takeRight <&> mapSnd toRed >>= takeRight <&> postRemoveRotation Black
+handleRedSibling z@(RBLeft{}:_, _) = goBack z >>= rotateLeft <&> mapSnd toBlack >>= goLeft <&> mapSnd toRed >>= goLeft <&> postRemoveRotation Black
+handleRedSibling z@(RBRight{}:_, _) = goBack z >>= rotateRight <&> mapSnd toBlack >>= goRight <&> mapSnd toRed >>= goRight <&> postRemoveRotation Black
 handleRedSibling _ = error ""
 
 handleBlackSibling :: Zipper a -> Maybe (Zipper a)
 handleBlackSibling z@(RBLeft{}:_, _) =
     case (areChildrenRed $ fromJust $ sibling z) of
-        (_, Just True) -> back z >>= rotateLeft >>= takeLeft >>= swapColorWithParent >>= back >>= takeRight <&> mapSnd toBlack
-        (Just True, _) -> sibling z >>= rotateRight <&> mapSnd toBlack >>= back >>= rotateLeft >>= takeLeft >>= swapColorWithParent
-        _ -> sibling z <&> mapSnd toRed >>= back <&> postRemoveRotation Black
+        (_, Just True) -> goBack z >>= rotateLeft >>= goLeft >>= swapColorWithParent >>= goBack >>= goRight <&> mapSnd toBlack
+        (Just True, _) -> sibling z >>= rotateRight <&> mapSnd toBlack >>= goBack >>= rotateLeft >>= goLeft >>= swapColorWithParent
+        _ -> sibling z <&> mapSnd toRed >>= goBack <&> postRemoveRotation Black
 handleBlackSibling z@(RBRight{}:_, _) =
     case (areChildrenRed $ fromJust $ sibling z) of
-        (Just True, _) -> back z >>= rotateRight >>= takeRight >>= swapColorWithParent >>= back >>= takeLeft <&> mapSnd toBlack
-        (_, Just True) -> sibling z >>= rotateLeft <&> mapSnd toBlack >>= back >>= rotateRight >>= takeRight >>= swapColorWithParent
-        _ -> sibling z <&> mapSnd toRed >>= back <&> postRemoveRotation Black
+        (Just True, _) -> goBack z >>= rotateRight >>= goRight >>= swapColorWithParent >>= goBack >>= goLeft <&> mapSnd toBlack
+        (_, Just True) -> sibling z >>= rotateLeft <&> mapSnd toBlack >>= goBack >>= rotateRight >>= goRight >>= swapColorWithParent
+        _ -> sibling z <&> mapSnd toRed >>= goBack <&> postRemoveRotation Black
 handleBlackSibling _ = error ""
 
 postRemoveRotation :: Color -> Zipper a -> Zipper a
 postRemoveRotation Red z = mapSnd toBlack z
 postRemoveRotation _ z@(_, Node Red _ _ _) = mapSnd toBlack z
 postRemoveRotation _ z@([], _) = mapSnd toBlack z
-postRemoveRotation _ z = case (sibling z <&> snd <&> isRed) of
+postRemoveRotation _ z = case (sibling z <&> isRed) of
     Just True -> fromJust $ handleRedSibling z
     Just False -> fromJust $ handleBlackSibling z
     Nothing -> error "unreachable"

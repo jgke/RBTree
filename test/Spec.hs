@@ -56,7 +56,9 @@ treeIsSorted :: (Eq a, Ord a) => RBTree a -> Bool
 treeIsSorted tree = (toList tree) == (uniq $ sort $ toList tree)
 
 rootIsBlack :: RBTree a -> Bool
-rootIsBlack = isBlack
+rootIsBlack (Node Black _ _ _) = True
+rootIsBlack (Nil) = True
+rootIsBlack _ = False
 
 treesAreSorted :: Tester
 treesAreSorted a =  a "All trees are sorted" $ \val -> treeIsSorted $ addAll Nil val
@@ -74,12 +76,16 @@ makeTreeAIsBlack a = a "makeTree a is black" $ \val ->
 rootOfTreeIsAlwaysBlack :: Tester
 rootOfTreeIsAlwaysBlack a = a "Root of tree is always black" $ \val -> rootIsBlack $ makeTree val
 
+nodeIsRed :: RBTree a -> Bool
+nodeIsRed (Node Red _ _ _) = True
+nodeIsRed _ = False
+
 childIsRed :: RBTree a -> Bool
 childIsRed Nil = False
-childIsRed (Node _ _ l r)  = isRed l || isRed r
+childIsRed (Node _ _ l r)  = nodeIsRed l || nodeIsRed r
 
 childAndParentIsRed :: RBTree a -> Bool
-childAndParentIsRed tree = isRed tree && childIsRed tree
+childAndParentIsRed tree = nodeIsRed tree && childIsRed tree
 
 noAdjacentRedNodes :: Tester
 noAdjacentRedNodes a = a "There are no adjacent red nodes" $ \val -> containsNoAdjacentRedNodes $ addAll Nil val
@@ -98,18 +104,18 @@ countOfBlackChildrenIsEqualForAllTrees :: Tester
 countOfBlackChildrenIsEqualForAllTrees a = a "Count of black children is always equal" $ \val -> countOfBlackChildrenIsEqual $ addAll Nil val
 
 zipperLawsLeft :: (Ord a) => RBTree a -> Bool
-zipperLawsLeft tree = ((Just . zipper) tree >>= takeLeft >>= back >>= (Just . snd)) == Just tree
+zipperLawsLeft tree = ((Just . zipper) tree >>= goLeft >>= goBack >>= (Just . snd)) == Just tree
 
 zipperLawsRight :: (Ord a) => RBTree a -> Bool
-zipperLawsRight tree = ((Just . zipper) tree >>= takeLeft >>= back >>= (Just . snd)) == Just tree
+zipperLawsRight tree = ((Just . zipper) tree >>= goLeft >>= goBack >>= (Just . snd)) == Just tree
 
 type Tester = forall t. ([Char] -> ([Int] -> Bool) -> t) -> t
 
 zipperLeft :: Tester
-zipperLeft a = a "takeLeft . back = id" $ \val -> val == [] || zipperLawsLeft (addAll Nil (val :: [Int]))
+zipperLeft a = a "goLeft . goBack = id" $ \val -> val == [] || zipperLawsLeft (addAll Nil (val :: [Int]))
 
 zipperRight :: Tester
-zipperRight a = a "takeRight . back = id" $ \val -> val == [] || zipperLawsRight (addAll Nil (val :: [Int]))
+zipperRight a = a "goRight . goBack = id" $ \val -> val == [] || zipperLawsRight (addAll Nil (val :: [Int]))
 
 searchSome :: [Int] -> Bool
 searchSome (x:xs) = (not $ elem x xs) || (isJust $ search (addAll Nil xs) x)
@@ -148,11 +154,11 @@ unitTests = testGroup "Unit tests"
     , testCase "Insert to tree" $
       add 2 (makeIntTree 1) @?= Node Black 1 Nil (Node Red 2 Nil Nil)
     , testCase "Navigating empty tree" $
-      ((Just $ zipper (Nil :: RBTree Int)) >>= takeLeft) @?= Nothing
+      ((Just $ zipper (Nil :: RBTree Int)) >>= goLeft) @?= Nothing
     , testCase "Navigating one tree" $
-      ((Just $ zipper (makeIntTree 0)) >>= takeLeft >>= (Just . snd)) @?= Just Nil
-    , testCase "Navigating back and forth" $
-      ((Just $ zipper (makeIntTree 0)) >>= takeLeft >>= back >>= (Just . snd)) @?= Just (makeTree 0)
+      ((Just $ zipper (makeIntTree 0)) >>= goLeft >>= (Just . snd)) @?= Just Nil
+    , testCase "Navigating goBack and forth" $
+      ((Just $ zipper (makeIntTree 0)) >>= goLeft >>= goBack >>= (Just . snd)) @?= Just (makeTree 0)
     , testCase "Insert many more to tree" $
       addAll (makeIntTree 4) [1, 2, 3, 4, 5] @?= Node Black 4 (Node Black 2 (Node Red 1 Nil Nil) (Node Red 3 Nil Nil)) (Node Black 5 Nil Nil)
     , testCase "Search from Nil" $
@@ -168,58 +174,58 @@ unitTests = testGroup "Unit tests"
     , testCase "Validate double black delete" $
       validateTree (Lib.delete (0 :: Int) (Node Black 1 (Node Black 0 Nil Nil) (Node Black 2 Nil Nil))) @?= True
 
-    , testCase "Removed Red" $
-      (Just (Node Black 1 (Node Black 0 Nil Nil) (Node Black 2 Nil Nil)) <&> zipper >>= takeLeft <&> postRemoveRotation Red <&> unzipper :: Maybe (RBTree Int))
+    , testCase "bemoved Red 1" $
+      (Just (Node Black 1 (Node Black 0 Nil Nil) (Node Black 2 Nil Nil)) <&> zipper >>= goLeft <&> postRemoveRotation Red <&> unzipper :: Maybe (RBTree Int))
             @?= Just (Node Black 1 (Node Black 0 Nil Nil) (Node Black 2 Nil Nil))
-    , testCase "Removed Red" $
-      (Just (Node Black 1 (Node Black 0 Nil Nil) (Node Black 2 Nil Nil)) <&> zipper >>= takeRight <&> postRemoveRotation Red <&> unzipper :: Maybe (RBTree Int))
-            @?= Just (Node Black 1 (Node Black 0 Nil Nil) (Node Black 2 Nil Nil))
-
-    , testCase "Removed Black with Red replacement" $
-      (Just (Node Black 1 (Node Red 0 Nil Nil) (Node Black 2 Nil Nil)) <&> zipper >>= takeLeft <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
-            @?= Just (Node Black 1 (Node Black 0 Nil Nil) (Node Black 2 Nil Nil))
-    , testCase "Removed Black with Red replacement" $
-      (Just (Node Black 1 (Node Black 0 Nil Nil) (Node Red 2 Nil Nil)) <&> zipper >>= takeRight <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
+    , testCase "Removed Red 2" $
+      (Just (Node Black 1 (Node Black 0 Nil Nil) (Node Black 2 Nil Nil)) <&> zipper >>= goRight <&> postRemoveRotation Red <&> unzipper :: Maybe (RBTree Int))
             @?= Just (Node Black 1 (Node Black 0 Nil Nil) (Node Black 2 Nil Nil))
 
-    , testCase "Removed Black with Red nieces" $
-      (Just (Node Black 0 Nil (Node Black 2 (Node Red 1 Nil Nil) (Node Red 3 Nil Nil))) <&> zipper >>= takeLeft <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
+    , testCase "Removed Black with Red replacement 1" $
+      (Just (Node Black 1 (Node Red 0 Nil Nil) (Node Black 2 Nil Nil)) <&> zipper >>= goLeft <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
+            @?= Just (Node Black 1 (Node Black 0 Nil Nil) (Node Black 2 Nil Nil))
+    , testCase "Removed Black with Red replacement 2" $
+      (Just (Node Black 1 (Node Black 0 Nil Nil) (Node Red 2 Nil Nil)) <&> zipper >>= goRight <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
+            @?= Just (Node Black 1 (Node Black 0 Nil Nil) (Node Black 2 Nil Nil))
+
+    , testCase "Removed Black with Red nieces 1" $
+      (Just (Node Black 0 Nil (Node Black 2 (Node Red 1 Nil Nil) (Node Red 3 Nil Nil))) <&> zipper >>= goLeft <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
             @?= Just (Node Black 2 (Node Black 0 Nil (Node Red 1 Nil Nil)) (Node Black 3 Nil Nil))
-    , testCase "Removed Black with Red nieces" $
-      (Just (Node Black 0 (Node Black (-2) (Node Red (-3) Nil Nil) (Node Red (-1) Nil Nil)) Nil) <&> zipper >>= takeRight <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
+    , testCase "Removed Black with Red nieces 2" $
+      (Just (Node Black 0 (Node Black (-2) (Node Red (-3) Nil Nil) (Node Red (-1) Nil Nil)) Nil) <&> zipper >>= goRight <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
             @?= Just (Node Black (-2) (Node Black (-3) Nil Nil) (Node Black 0 (Node Red (-1) Nil Nil) Nil))
 
-    , testCase "Removed Black with Red nieces" $
-      (Just (Node Black 0 Nil (Node Black 2 (Node Red 1 Nil Nil) Nil)) <&> zipper >>= takeLeft <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
+    , testCase "Removed Black with Red nieces 3" $
+      (Just (Node Black 0 Nil (Node Black 2 (Node Red 1 Nil Nil) Nil)) <&> zipper >>= goLeft <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
             @?= Just (Node Black 1 (Node Black 0 Nil Nil) (Node Black 2 Nil Nil))
-    , testCase "Removed Black with Red nieces" $
-      (Just (Node Black 0 (Node Black (-2) Nil (Node Red (-1) Nil Nil)) Nil) <&> zipper >>= takeRight <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
+    , testCase "Removed Black with Red nieces 4" $
+      (Just (Node Black 0 (Node Black (-2) Nil (Node Red (-1) Nil Nil)) Nil) <&> zipper >>= goRight <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
             @?= Just (Node Black (-1) (Node Black (-2) Nil Nil) (Node Black 0 Nil Nil))
 
-    , testCase "Removed Black with Black nieces" $
-      (Just (Node Black 0 Nil (Node Black 1 Nil Nil)) <&> zipper >>= takeLeft <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
+    , testCase "Removed Black with Black nieces 1" $
+      (Just (Node Black 0 Nil (Node Black 1 Nil Nil)) <&> zipper >>= goLeft <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
             @?= Just (Node Black 0 Nil (Node Red 1 Nil Nil))
-    , testCase "Removed Black with Black nieces" $
-      (Just (Node Black 0 (Node Black (-1) Nil Nil) Nil) <&> zipper >>= takeRight <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
+    , testCase "Removed Black with Black nieces 2" $
+      (Just (Node Black 0 (Node Black (-1) Nil Nil) Nil) <&> zipper >>= goRight <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
             @?= Just (Node Black 0 (Node Red (-1) Nil Nil) Nil)
-    , testCase "Removed Black with Black nieces" $
-      (Just (Node Black 2 (Node Black 0 Nil (Node Black 1 Nil Nil)) (Node Black 4 (Node Black 3 Nil Nil) (Node Black 5 Nil Nil))) <&> zipper >>= takeLeft >>= takeLeft <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
+    , testCase "Removed Black with Black nieces 3" $
+      (Just (Node Black 2 (Node Black 0 Nil (Node Black 1 Nil Nil)) (Node Black 4 (Node Black 3 Nil Nil) (Node Black 5 Nil Nil))) <&> zipper >>= goLeft >>= goLeft <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
             @?= Just (Node Black 2 (Node Black 0 Nil (Node Red 1 Nil Nil)) (Node Red 4 (Node Black 3 Nil Nil) (Node Black 5 Nil Nil)))
-    , testCase "Removed Black with Black nieces" $
-      (Just (Node Black 2 (Node Black 0 (Node Black (-1) Nil Nil) (Node Black 1 Nil Nil)) (Node Black 4 (Node Black 3 Nil Nil) Nil)) <&> zipper >>= takeRight >>= takeRight <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
+    , testCase "Removed Black with Black nieces 4" $
+      (Just (Node Black 2 (Node Black 0 (Node Black (-1) Nil Nil) (Node Black 1 Nil Nil)) (Node Black 4 (Node Black 3 Nil Nil) Nil)) <&> zipper >>= goRight >>= goRight <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
             @?= Just (Node Black 2 (Node Red 0 (Node Black (-1) Nil Nil) (Node Black 1 Nil Nil)) (Node Black 4 (Node Red 3 Nil Nil) Nil))
-    , testCase "Removed Black with Black nieces" $
-      (Just (Node Black 9 (Node Red 7 (Node Black 3 Nil (Node Red 5 Nil Nil)) Nil) (Node Black 10 Nil Nil)) <&> zipper >>= takeLeft >>= takeRight <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
+    , testCase "Removed Black with Black nieces 5" $
+      (Just (Node Black 9 (Node Red 7 (Node Black 3 Nil (Node Red 5 Nil Nil)) Nil) (Node Black 10 Nil Nil)) <&> zipper >>= goLeft >>= goRight <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
             @?= Just (Node Black 9 (Node Red 5 (Node Black 3 Nil Nil) (Node Black 7 Nil Nil)) (Node Black 10 Nil Nil))
 
-    , testCase "Removed Black with Red sibling" $
-      (Just (Node Black 0 Nil (Node Red 2 (Node Black 1 Nil Nil) (Node Black 3 Nil Nil))) <&> zipper >>= takeLeft <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
+    , testCase "Removed Black with Red sibling 1" $
+      (Just (Node Black 0 Nil (Node Red 2 (Node Black 1 Nil Nil) (Node Black 3 Nil Nil))) <&> zipper >>= goLeft <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
             @?= Just (Node Black 2 (Node Black 0 Nil (Node Red 1 Nil Nil)) (Node Black 3 Nil Nil))
-    , testCase "Removed Black with Red sibling" $
-      (Just (Node Black 5 (Node Black 1 Nil Nil) (Node Red 7 Nil (Node Black 8 Nil (Node Red 10 Nil Nil)))) <&> zipper >>= takeRight >>= takeLeft <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
+    , testCase "Removed Black with Red sibling 2" $
+      (Just (Node Black 5 (Node Black 1 Nil Nil) (Node Red 7 Nil (Node Black 8 Nil (Node Red 10 Nil Nil)))) <&> zipper >>= goRight >>= goLeft <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
             @?= Just (Node Black 5 (Node Black 1 Nil Nil) (Node Red 8 (Node Black 7 Nil Nil) (Node Black 10 Nil Nil)))
-    , testCase "Removed Black with Red sibling" $
-      (Just (Node Black 10 (Node Red 2 (Node Black 1 Nil Nil) (Node Black 6 Nil (Node Red 8 Nil Nil))) Nil) <&> zipper >>= takeRight <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
+    , testCase "Removed Black with Red sibling 3" $
+      (Just (Node Black 10 (Node Red 2 (Node Black 1 Nil Nil) (Node Black 6 Nil (Node Red 8 Nil Nil))) Nil) <&> zipper >>= goRight <&> postRemoveRotation Black <&> unzipper :: Maybe (RBTree Int))
             @?= Just (Node Black 2 (Node Black 1 Nil Nil) (Node Red 8 (Node Black 6 Nil Nil) (Node Black 10 Nil Nil)))
 
   ]
