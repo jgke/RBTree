@@ -63,11 +63,8 @@ countOfBlackChildrenIsEqual :: (Show a) => RBTree a -> Bool
 countOfBlackChildrenIsEqual tree = countBlackChildren tree >= 0
 
 containsNoAdjacentRedNodes :: RBTree a -> Bool
-containsNoAdjacentRedNodes tree = not $ anyTree childAndParentIsRed tree
-
-makeTreeAIsBlack :: Tester
-makeTreeAIsBlack a = a "makeTree a is black" $ \val ->
-  (length val /= 1) || (makeTree (head val) :: RBTree Int) == Node Black (head val) Nil Nil
+containsNoAdjacentRedNodes Nil = True
+containsNoAdjacentRedNodes n@(Node _ _ l r) = (not $ childAndParentIsRed n) && containsNoAdjacentRedNodes l && containsNoAdjacentRedNodes r
 
 rootOfTreeIsAlwaysBlack :: Tester
 rootOfTreeIsAlwaysBlack a = a "Root of tree is always black" $ \val -> isBlack $ addAll Nil val
@@ -132,12 +129,12 @@ treeIsValidAfterAnyOperation :: ([Char] -> ([Operation Int] -> Bool) -> t) -> t
 treeIsValidAfterAnyOperation a = a "Tree is valid after any operation" (\operations -> validateTree $ operate Nil operations)
 
 propertyTesters :: [([Char] -> ([Int] -> Bool) -> t) -> t]
-propertyTesters = [treesAreSorted, makeTreeAIsBlack, rootOfTreeIsAlwaysBlack,
+propertyTesters = [treesAreSorted, rootOfTreeIsAlwaysBlack,
                    noAdjacentRedNodes, countOfBlackChildrenIsEqualForAllTrees,
                    zipperLeft, zipperRight, searchWorks, deleteSimple]
 
 makeIntTree :: Int -> RBTree Int
-makeIntTree = makeTree
+makeIntTree = (flip add) emptyTree
 
 unitTests :: TestTree
 unitTests = testGroup "Unit tests"
@@ -150,7 +147,7 @@ unitTests = testGroup "Unit tests"
     , testCase "Navigating one tree" $
       ((Just $ zipper (makeIntTree 0)) >>= goLeft >>= (Just . snd)) @?= Just Nil
     , testCase "Navigating goBack and forth" $
-      ((Just $ zipper (makeIntTree 0)) >>= goLeft >>= goBack >>= (Just . snd)) @?= Just (makeTree 0)
+      ((Just $ zipper (makeIntTree 0)) >>= goLeft >>= goBack >>= (Just . snd)) @?= Just (Node Black 0 Nil Nil)
     , testCase "Insert many more to tree" $
       addAll (makeIntTree 4) [1, 2, 3, 4, 5] @?= Node Black 4 (Node Black 2 (Node Red 1 Nil Nil) (Node Red 3 Nil Nil)) (Node Black 5 Nil Nil)
     , testCase "Search from Nil" $

@@ -22,7 +22,16 @@ instance Colorable (RBTree a) where
   setColor c (Node _ v l r) = (Node c v l r)
   setColor _ Nil = Nil
 
--- basic query functions
+instance Foldable RBTree where
+   foldMap _ Nil = mempty
+   foldMap f (Node _ k l r) = foldMap f l `mappend` f k `mappend` foldMap f r
+
+instance Ord a => Semigroup (RBTree a) where
+    (<>) = mappend
+
+instance Ord a => Monoid (RBTree a) where
+    mempty = Nil
+    mappend = addAll
 
 emptyTree :: RBTree a
 emptyTree = Nil
@@ -30,8 +39,7 @@ emptyTree = Nil
 makeTree :: a -> RBTree a
 makeTree a = Node Black a Nil Nil
 
-makeRed :: a -> RBTree a
-makeRed a = Node Red a Nil Nil
+-- basic query functions
 
 search :: (Ord a) => RBTree a -> a -> Maybe a
 search Nil _ = Nothing
@@ -55,25 +63,11 @@ getRight :: RBTree a -> Maybe (RBTree a)
 getRight Nil = Nothing
 getRight (Node _ _ _ r) = Just r
 
--- simple iterating
+isBlack :: (Colorable a) => a -> Bool
+isBlack c = getColor c == Black
 
-mapNode :: (a -> RBTree a -> RBTree a -> b) -> RBTree a -> b
-mapNode _ Nil = error "Cannot map a NIL"
-mapNode f (Node _ v l r) = f v l r
-
-walkTree :: (Ord b) => RBTree a -> (a -> RBTree b) -> RBTree b
-walkTree Nil _ = Nil
-walkTree node f = mapNode (\v l r -> flatten [f v, walkTree l f, walkTree r f]) node
-
-anyTree :: (RBTree a -> Bool) -> RBTree a -> Bool
-anyTree _ Nil = False
-anyTree f node@(Node _ _ l r) = f node || anyTree f l || anyTree f r
-
-allTree :: (RBTree a -> Bool) -> RBTree a -> Bool
-allTree f tree = not $ anyTree (not . f) tree
-
-flatten :: (Foldable t, Ord a) => t (RBTree a) -> RBTree a
-flatten treeSet = foldr addAll Nil treeSet
+isRed :: (Colorable a) => a -> Bool
+isRed c = getColor c == Red
 
 -- node manipulation
 
@@ -86,12 +80,6 @@ toBlack = setColor Black
 
 toRed :: (Colorable a) => a -> a
 toRed = setColor Red
-
-isBlack :: (Colorable a) => a -> Bool
-isBlack c = getColor c == Black
-
-isRed :: (Colorable a) => a -> Bool
-isRed c = getColor c == Red
 
 -- zipper
 
@@ -158,7 +146,7 @@ currentToRedAndChildrenToBlack (t, Node _ v l r) = Just (t, Node Red v (toBlack 
 -- adding
 
 add :: (Ord a) => a -> RBTree a -> RBTree a
-add a Nil = makeTree a
+add a Nil = (Node Black a Nil Nil)
 add a tree = unzipper $ addToZipper a $ zipper tree
 
 addAll :: (Ord a, Foldable t) => RBTree a -> t a -> RBTree a
@@ -167,7 +155,7 @@ addAll tree coll = foldr add tree coll
 addToZipper :: (Ord a) => a -> Zipper a -> Zipper a
 addToZipper value z@(thread, tree) =
   case getNodeValue tree <&> (compare value) of
-    Nothing -> fromJust $ postAddRotation (thread, makeRed value)
+    Nothing -> fromJust $ postAddRotation (thread, (Node Red value Nil Nil))
     (Just LT) -> addToZipper value (fromJust $ goLeft z)
     (Just EQ) -> z
     (Just GT) -> addToZipper value (fromJust $ goRight z)
@@ -202,9 +190,6 @@ swapValue :: a -> Zipper a -> Maybe (a, Zipper a)
 swapValue x (t, (Node c nx l r)) = Just (nx, (t, Node c x l r))
 swapValue _ (_, Nil) = Nothing
 
-mapSnd :: (b -> c) -> (a, b) -> (a, c)
-mapSnd f (a, b) = (a, f b)
-
 toSuccessor :: (Ord a) => a -> Zipper a -> Maybe (Zipper a)
 toSuccessor value z@(_, tree) =
   case getNodeValue tree <&> (compare value) of
@@ -215,15 +200,15 @@ toSuccessor value z@(_, tree) =
 
 swapValueWithSuccessor :: (Ord a) => Zipper a -> Maybe (Zipper a)
 swapValueWithSuccessor (_, Nil) = Nothing
-swapValueWithSuccessor (thread, (Node c v l r)) = let successor = fromJust $ toSuccessor v $ zipper r
-                                                      successorValue = fromJust $ getNodeValue $ snd successor
-                                                      newParent = Node c successorValue l r
-                                                      newZipper = fromJust $ goRight (thread, newParent)
-                                                  in  Just ((fst successor)++(fst newZipper), setValue v $ snd successor)
+swapValueWithSuccessor (thread, (Node c v l r)) = do
+    successor <- toSuccessor v $ zipper r
+    successorValue <- getNodeValue $ snd successor
+    let newParent = Node c successorValue l r
+    newZipper <- goRight (thread, newParent)
+    return ((fst successor)++(fst newZipper), setValue v $ snd successor)
 
 dropNode :: (Ord a) => Zipper a -> (Zipper a, Color)
 dropNode (t, Nil) = ((t, Nil), Black)
-dropNode (t, Node c _ Nil Nil) = ((t, Nil), c)
 dropNode (t, Node c _ Nil r) = ((t, r), c)
 dropNode (t, Node c _ l Nil) = ((t, l), c)
 dropNode z@(_, Node{}) = fromJust $ swapValueWithSuccessor z <&> dropNode
@@ -246,41 +231,28 @@ areChildrenRed :: Zipper a -> (Maybe Bool, Maybe Bool)
 areChildrenRed z = (goLeft z <&> isRed, goRight z <&> isRed)
 
 handleRedSibling :: Zipper a -> Maybe (Zipper a)
-handleRedSibling z@(RBLeft{}:_, _) = goBack z >>= rotateLeft <&> mapSnd toBlack >>= goLeft <&> mapSnd toRed >>= goLeft <&> postRemoveRotation Black
-handleRedSibling z@(RBRight{}:_, _) = goBack z >>= rotateRight <&> mapSnd toBlack >>= goRight <&> mapSnd toRed >>= goRight <&> postRemoveRotation Black
+handleRedSibling z@(RBLeft{}:_, _) = goBack z >>= rotateLeft <&> toBlack >>= goLeft <&> toRed >>= goLeft <&> postRemoveRotation Black
+handleRedSibling z@(RBRight{}:_, _) = goBack z >>= rotateRight <&> toBlack >>= goRight <&> toRed >>= goRight <&> postRemoveRotation Black
 handleRedSibling _ = error ""
 
 handleBlackSibling :: Zipper a -> Maybe (Zipper a)
 handleBlackSibling z@(RBLeft{}:_, _) =
     case (areChildrenRed $ fromJust $ sibling z) of
-        (_, Just True) -> goBack z >>= rotateLeft >>= goLeft >>= swapColorWithParent >>= goBack >>= goRight <&> mapSnd toBlack
-        (Just True, _) -> sibling z >>= rotateRight <&> mapSnd toBlack >>= goBack >>= rotateLeft >>= goLeft >>= swapColorWithParent
-        _ -> sibling z <&> mapSnd toRed >>= goBack <&> postRemoveRotation Black
+        (_, Just True) -> goBack z >>= rotateLeft >>= goLeft >>= swapColorWithParent >>= goBack >>= goRight <&> toBlack
+        (Just True, _) -> sibling z >>= rotateRight <&> toBlack >>= goBack >>= rotateLeft >>= goLeft >>= swapColorWithParent
+        _ -> sibling z <&> toRed >>= goBack <&> postRemoveRotation Black
 handleBlackSibling z@(RBRight{}:_, _) =
     case (areChildrenRed $ fromJust $ sibling z) of
-        (Just True, _) -> goBack z >>= rotateRight >>= goRight >>= swapColorWithParent >>= goBack >>= goLeft <&> mapSnd toBlack
-        (_, Just True) -> sibling z >>= rotateLeft <&> mapSnd toBlack >>= goBack >>= rotateRight >>= goRight >>= swapColorWithParent
-        _ -> sibling z <&> mapSnd toRed >>= goBack <&> postRemoveRotation Black
+        (Just True, _) -> goBack z >>= rotateRight >>= goRight >>= swapColorWithParent >>= goBack >>= goLeft <&> toBlack
+        (_, Just True) -> sibling z >>= rotateLeft <&> toBlack >>= goBack >>= rotateRight >>= goRight >>= swapColorWithParent
+        _ -> sibling z <&> toRed >>= goBack <&> postRemoveRotation Black
 handleBlackSibling _ = error ""
 
 postRemoveRotation :: Color -> Zipper a -> Zipper a
-postRemoveRotation Red z = mapSnd toBlack z
-postRemoveRotation _ z@(_, Node Red _ _ _) = mapSnd toBlack z
-postRemoveRotation _ z@([], _) = mapSnd toBlack z
+postRemoveRotation Red z = toBlack z
+postRemoveRotation _ z@(_, Node Red _ _ _) = toBlack z
+postRemoveRotation _ z@([], _) = toBlack z
 postRemoveRotation _ z = case (sibling z <&> isRed) of
     Just True -> fromJust $ handleRedSibling z
     Just False -> fromJust $ handleBlackSibling z
     Nothing -> error "unreachable"
-
--- instances
-
-instance Foldable RBTree where
-   foldMap _ Nil = mempty
-   foldMap f (Node _ k l r) = foldMap f l `mappend` f k `mappend` foldMap f r
-
-instance Ord a => Semigroup (RBTree a) where
-    (<>) = mappend
-
-instance Ord a => Monoid (RBTree a) where
-    mempty = Nil
-    mappend = addAll
