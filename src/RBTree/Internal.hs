@@ -270,34 +270,35 @@ handleRedSibling _ = error ""
 
 handleBlackSibling :: Zipper a -> Maybe (Zipper a)
 handleBlackSibling z@(x:_, _) =
-    case (x, areChildrenRed $ fromJust $ sibling z) of
+    case (x, isLeftNiblingRed, isRightNiblingRed) of
 
---       Black
--- --> Nil   Black
---         Red   Red
---
---          Black
--- --> Black     Black
---         Red
-        (RBLeft{}, (_, Just True)) -> goBack z >>= rotateLeft >>= goLeft >>= swapColorWithParent >>= goBack >>= goRight <&> toBlack
-        (RBRight{}, (Just True, _)) -> goBack z >>= rotateRight >>= goRight >>= swapColorWithParent >>= goBack >>= goLeft <&> toBlack
+        --       Black
+        -- --> Nil   Black
+        --         Red   Red
+        --
+        --          Black
+        -- --> Black     Black
+        --         Red
+        (RBLeft{}, _, Just True) -> goBack z >>= rotateLeft >>= goLeft >>= swapColorWithParent >>= goBack >>= goRight <&> toBlack
+        (RBRight{}, Just True, _) -> goBack z >>= rotateRight >>= goRight >>= swapColorWithParent >>= goBack >>= goLeft <&> toBlack
 
---       Black
--- --> Nil   Black
---         Red
---
---          Black
--- --> Black     Black
-        (RBLeft{}, (Just True, _)) -> sibling z >>= rotateRight <&> toBlack >>= goBack >>= rotateLeft >>= goLeft >>= swapColorWithParent
-        (RBRight{}, (_, Just True)) -> sibling z >>= rotateLeft <&> toBlack >>= goBack >>= rotateRight >>= goRight >>= swapColorWithParent
+        --       Black
+        -- --> Nil   Black
+        --         Red
+        --
+        --          Black
+        -- --> Black     Black
+        (RBLeft{}, Just True, _) -> sibling z >>= rotateRight <&> toBlack >>= goBack >>= rotateLeft >>= goLeft >>= swapColorWithParent
+        (RBRight{}, _, Just True) -> sibling z >>= rotateLeft <&> toBlack >>= goBack >>= rotateRight >>= goRight >>= swapColorWithParent
 
---       Black
--- --> Nil   Black
---
--- --> Black
---   Nil   Red
-        (RBLeft{}, _) -> sibling z <&> toRed >>= goBack <&> postRemoveRotation Black
-        (RBRight{}, _) -> sibling z <&> toRed >>= goBack <&> postRemoveRotation Black
+        --       Black
+        -- --> Nil   Black
+        --
+        -- --> Black
+        --   Nil   Red
+        _ -> sibling z <&> toRed >>= goBack <&> postRemoveRotation Black
+    where isLeftNiblingRed = sibling z >>= goLeft <&> isRed
+          isRightNiblingRed = sibling z >>= goRight <&> isRed
 handleBlackSibling _ = error ""
 
 areChildrenRed :: Zipper a -> (Maybe Bool, Maybe Bool)

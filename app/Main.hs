@@ -29,8 +29,11 @@ opNRandom tree n = foldl' (flip rop) tree $ take (2^n) $ map (.&. 65535) randomS
 lookupNRandom :: RBTree Int -> Int -> Bool
 lookupNRandom tree n = foldl' (flip $ xor . exists tree) True $ take (2^n) randomStream
 
-testAdd :: Int -> Benchmark
-testAdd n = bench ("RBTree add 2^" ++ show n) $ whnf (addNRandom emptyTree) n
+testAddRandom :: Int -> Benchmark
+testAddRandom n = bench ("RBTree add random 2^" ++ show n) $ whnf (addNRandom emptyTree) n
+
+testAddOrdered :: Int -> Benchmark
+testAddOrdered n = bench ("RBTree add ordered 2^" ++ show n) $ whnf (addAll emptyTree) [1..(2^n)]
 
 testOperate :: Int -> Benchmark
 testOperate n = bench ("RBTree operate 2^" ++ show n) $ whnf (opNRandom emptyTree) n
@@ -42,7 +45,8 @@ testLookup :: Int -> Benchmark
 testLookup n = bench ("RBTree lookup 2^" ++ show n) $ whnf (lookupNRandom constTree) n
 
 main :: IO ()
-main = defaultMain [ bgroup "add" $ map testAdd [12..16],
+main = defaultMain [ bgroup "addRandom" $ map testAddRandom [12..16],
+                     bgroup "addOrdered" $ map testAddOrdered [12..16],
                      bgroup "op" $ map testOperate [12..16],
                      bgroup "lookup" $ map testLookup [12..16] ]
 
