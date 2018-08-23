@@ -36,6 +36,7 @@ executables:
     dependencies:
     - rbtree
     - criterion >= 1.4.1.0
+    - deepseq >= 1.4.3.0
 
 tests:
   rbtree-test:

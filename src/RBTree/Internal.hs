@@ -9,7 +9,7 @@ import Control.Applicative ((<|>))
 data Color = Black | Red
              deriving (Eq, Show)
 data RBTree a = Nil
-              | Node Color a (RBTree a) (RBTree a)
+              | Node Color a !(RBTree a) !(RBTree a)
               deriving (Eq, Show)
 
 class Colorable a where
@@ -50,6 +50,10 @@ search (Node _ v l r) needle = case (compare needle v) of
 
 exists :: (Ord a) => RBTree a -> a -> Bool
 exists haystack needle = isJust $ search haystack needle
+
+size :: RBTree a -> Int
+size Nil = 0
+size (Node _ _ l r) = 1 + (size l) + (size r)
 
 getNodeValue :: RBTree a -> Maybe a
 getNodeValue Nil = Nothing
@@ -113,7 +117,7 @@ sibling z@(RBRight{}:_, _) = goBack z >>= goLeft
 
 zipTo :: (Ord a) => a -> Zipper a -> Either (Zipper a) (Zipper a)
 zipTo value z@(_, tree) =
-  case getNodeValue tree <&> (compare value) of
+  case getNodeValue tree <&> compare value of
     Nothing -> Left z
     (Just LT) -> maybeToEither (goLeft z) (zipTo value) z
     (Just EQ) -> Right z
@@ -156,7 +160,7 @@ addAll tree coll = foldr add tree coll
 addToZipper :: (Ord a) => a -> Zipper a -> Zipper a
 addToZipper value z@(thread, tree) =
   case (zipTo value z) of
-    (Right n) -> mapSnd (setValue value) n --already present, replace existing
+    Right n -> mapSnd (setValue value) n --already present, replace existing
     Left z -> fromJust $ postAddRotation (fst z, (Node Red value Nil Nil))
 
 -- adding step 2: re-balance tree
@@ -276,11 +280,11 @@ handleBlackSibling z@(x:_, _) =
         -- --> Nil   Black
         --         Red   Red
         --
-        --          Black
-        -- --> Black     Black
-        --         Red
-        (RBLeft{}, _, Just True) -> goBack z >>= rotateLeft >>= goLeft >>= swapColorWithParent >>= goBack >>= goRight <&> toBlack
-        (RBRight{}, Just True, _) -> goBack z >>= rotateRight >>= goRight >>= swapColorWithParent >>= goBack >>= goLeft <&> toBlack
+        --      Black
+        -- Black     Black <--
+        --     Red
+        (RBLeft{}, _, Just True) -> goBack z >>= rotateLeft >>= goLeft >>= swapColorWithParent >>= sibling <&> toBlack
+        (RBRight{}, Just True, _) -> goBack z >>= rotateRight >>= goRight >>= swapColorWithParent >>= sibling <&> toBlack
 
         --       Black
         -- --> Nil   Black
