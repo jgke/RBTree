@@ -134,13 +134,13 @@ rotateRight (t, Node c v (Node lc lv ll lr) r) = Just (t, Node lc lv ll (Node c 
 rotateRight _ = Nothing
 
 swapColorWithParent :: Zipper a -> Maybe (Zipper a)
-swapColorWithParent (((RBLeft pc pa pn):t), (Node c x l r)) = Just (((RBLeft c pa pn):t), (Node pc x l r))
-swapColorWithParent (((RBRight pc pa pn):t), (Node c x l r)) = Just (((RBRight c pa pn):t), (Node pc x l r))
+swapColorWithParent (RBLeft pc pa pn:t, Node c x l r) = Just (RBLeft c pa pn:t, Node pc x l r)
+swapColorWithParent (RBRight pc pa pn:t, Node c x l r) = Just (RBRight c pa pn:t, Node pc x l r)
 swapColorWithParent _ = Nothing
 
 swapValueWithParent :: Zipper a -> Maybe (Zipper a)
-swapValueWithParent (((RBLeft pc pa pn):t), (Node c x l r)) = Just (((RBLeft pc x pn):t), (Node c pa l r))
-swapValueWithParent (((RBRight pc pa pn):t), (Node c x l r)) = Just (((RBRight pc x pn):t), (Node c pa l r))
+swapValueWithParent (RBLeft pc pa pn:t, Node c x l r) = Just (RBLeft pc x pn:t, Node c pa l r)
+swapValueWithParent (RBRight pc pa pn:t, Node c x l r) = Just (RBRight pc x pn:t, Node c pa l r)
 swapValueWithParent _ = Nothing
 
 currentToRedAndChildrenToBlack :: Zipper a -> Maybe (Zipper a)
@@ -225,12 +225,12 @@ removeFromZipper :: (Ord a) => a -> Zipper a -> Zipper a
 removeFromZipper value z =
   case (zipTo value z) of
     Left _ -> z -- not found, do nothing
-    Right node -> (uncurry $ flip postRemoveRotation) $ dropNode node
+    Right node -> (uncurry postRemoveRotation) $ dropNode node
 
-dropNode :: (Ord a) => Zipper a -> (Zipper a, Color)
-dropNode (t, Nil) = ((t, Nil), Black)
-dropNode (t, Node c _ Nil r) = ((t, r), c)
-dropNode (t, Node c _ l Nil) = ((t, l), c)
+dropNode :: (Ord a) => Zipper a -> (Color, Zipper a)
+dropNode (t, Nil) = (Black, (t, Nil))
+dropNode (t, Node c _ Nil r) = (c, (t, r))
+dropNode (t, Node c _ l Nil) = (c, (t, l))
 dropNode z@(_, Node{}) = fromJust $ swapValueWithSuccessor z <&> dropNode
 
 swapValueWithSuccessor :: (Ord a) => Zipper a -> Maybe (Zipper a)

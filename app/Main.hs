@@ -69,7 +69,7 @@ main = defaultMain [ bgroup "add UnbalancedTree" $ map testAddUnbalanced bigRang
                      bgroup "lookup" $ map testLookup bigRange ]
 
 data UnbalancedTree a = UBNil
-                      | UBNode a !(UnbalancedTree a) !(UnbalancedTree a)
+                      | UBNode a (UnbalancedTree a) (UnbalancedTree a)
 
 addUnbalanced :: (Ord a) =>  a -> UnbalancedTree a -> UnbalancedTree a
 addUnbalanced value UBNil = UBNode value UBNil UBNil

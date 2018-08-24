@@ -163,7 +163,7 @@ unitTests = testGroup "Unit tests"
     , testCase "Validate double black delete" $
       validateTree (remove (0 :: Int) (Node Black 1 (Node Black 0 Nil Nil) (Node Black 2 Nil Nil))) @?= True
 
-    , testCase "bemoved Red 1" $
+    , testCase "Removed Red 1" $
       (Just (Node Black 1 (Node Black 0 Nil Nil) (Node Black 2 Nil Nil)) <&> zipper >>= goLeft <&> postRemoveRotation Red <&> unzipper :: Maybe (RBTree Int))
             @?= Just (Node Black 1 (Node Black 0 Nil Nil) (Node Black 2 Nil Nil))
     , testCase "Removed Red 2" $
